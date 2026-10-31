@@ -3,7 +3,7 @@ const assert = require('node:assert');
 const D = require('../server/db');
 const { createApp } = require('../server/index');
 
-let server, base;
+let server, base, MT, GT;
 
 async function call(method, url, body, token) {
   const res = await fetch(base + url, {
@@ -29,6 +29,7 @@ test('full workflow', async () => {
   const setup = await call('POST', '/api/setup', { name: 'المدير', username: 'admin', password: 'secret1' });
   assert.equal(setup.status, 200);
   const M = setup.body.token;
+  MT = M;
   assert.equal((await call('POST', '/api/setup', { name: 'x', username: 'y', password: 'zzzzzz' })).status, 403);
 
   // موظف بوابة
@@ -36,6 +37,7 @@ test('full workflow', async () => {
   assert.equal(u.status, 200);
   assert.equal((await call('POST', '/api/login', { username: 'gate', password: 'wrong' })).status, 401);
   const G = (await call('POST', '/api/login', { username: 'gate', password: 'gate123' })).body.token;
+  GT = G;
 
   const boot = (await call('GET', '/api/bootstrap', null, G)).body;
   assert.deepEqual(boot.materials.map((m) => m.name), ['دفان', 'سبيس']);
@@ -137,4 +139,34 @@ test('full workflow', async () => {
   assert.equal(dash.summary.trips, 2);
   assert.equal(dash.cancelledToday, 1);
   assert.equal(dash.outstanding, 500);
+});
+
+test('expenses', async () => {
+  // البوابة لا تسجل مصروفات
+  assert.equal((await call('POST', '/api/expenses', { category: 'ديزل / وقود', amount: 100, method: 'cash' }, GT)).status, 403);
+  assert.equal((await call('POST', '/api/expenses', { category: '', amount: 100, method: 'cash' }, MT)).status, 400);
+
+  const e1 = await call('POST', '/api/expenses', { requestId: 'e1', category: 'ديزل / وقود', amount: 500, method: 'cash' }, MT);
+  assert.equal(e1.status, 201);
+  assert.equal(e1.body.expense.no, 1);
+  const again = await call('POST', '/api/expenses', { requestId: 'e1', category: 'ديزل / وقود', amount: 500, method: 'cash' }, MT);
+  assert.equal(again.body.repeated, true);
+
+  const e2 = await call('POST', '/api/expenses', { requestId: 'e2', category: 'رواتب وأجور', amount: 300, method: 'transfer' }, MT);
+  assert.equal((await call('POST', `/api/expenses/${e2.body.expense.id}/cancel`, {}, MT)).status, 400);
+  assert.equal((await call('POST', `/api/expenses/${e2.body.expense.id}/cancel`, { reason: 'مكرر' }, MT)).status, 200);
+
+  const rep = (await call('GET', '/api/reports', null, MT)).body;
+  assert.equal(rep.summary.expenses, 500);
+  assert.equal(rep.summary.expensesCash, 500);
+  assert.equal(rep.summary.net, 300); // 800 - 500
+  assert.equal(rep.summary.cashNet, -300); // 200 - 500
+  assert.deepEqual(rep.expenses.byCategory, [{ label: 'ديزل / وقود', amount: 500 }]);
+
+  // المصروفات لا تظهر عند التصفية باللوحة
+  assert.equal((await call('GET', '/api/reports?plate=5555', null, MT)).body.expenses, null);
+
+  const dash = (await call('GET', '/api/dashboard', null, MT)).body;
+  assert.equal(dash.summary.expenses, 500);
+  assert.equal((await call('GET', '/api/expenses?status=all', null, MT)).body.length, 2);
 });

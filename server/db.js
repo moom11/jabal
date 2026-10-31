@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS trucks (
   active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL
 );
--- كل عملية خروج = رد واحد. الأسماء والأسعار محفوظة داخل العملية نفسها
+-- كل عملية تحميل = رد واحد. الأسماء والأسعار محفوظة داخل العملية نفسها
 -- حتى لا تتغير السجلات السابقة عند تعديل البيانات الأساسية
 CREATE TABLE IF NOT EXISTS trips (
   id INTEGER PRIMARY KEY,
@@ -116,6 +116,28 @@ CREATE TABLE IF NOT EXISTS audit (
   after TEXT,
   reason TEXT
 );
+-- المصروفات (ديزل، رواتب، صيانة...) وتُخصم من صافي الربح
+CREATE TABLE IF NOT EXISTS expenses (
+  id INTEGER PRIMARY KEY,
+  no INTEGER NOT NULL UNIQUE,
+  request_id TEXT UNIQUE,
+  ts INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  date TEXT NOT NULL,
+  category TEXT NOT NULL,
+  amount REAL NOT NULL,
+  method TEXT NOT NULL CHECK (method IN ('cash', 'transfer')),
+  asset_id INTEGER REFERENCES assets(id),
+  asset_name TEXT NOT NULL DEFAULT '',
+  notes TEXT NOT NULL DEFAULT '',
+  user_id INTEGER REFERENCES users(id),
+  user_name TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'cancelled')),
+  cancel_reason TEXT,
+  cancelled_by TEXT,
+  cancelled_at TEXT
+);
+CREATE INDEX IF NOT EXISTS expenses_date ON expenses(date);
 CREATE TABLE IF NOT EXISTS assets (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
@@ -140,6 +162,7 @@ const DEFAULT_SETTINGS = {
   voucherSize: 'a5',
   duplicateMinutes: '15',
   logo: '',
+  expenseCategories: 'ديزل / وقود\nرواتب وأجور\nصيانة وقطع غيار\nإيجار معدات\nرسوم وتصاريح\nأخرى',
 };
 
 const pad = (n) => String(n).padStart(2, '0');
@@ -178,7 +201,7 @@ function open(file) {
 
   const insSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
   for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) insSetting.run(k, v);
-  db.prepare("INSERT OR IGNORE INTO counters (name, value) VALUES ('trip', 0), ('payment', 0)").run();
+  db.prepare("INSERT OR IGNORE INTO counters (name, value) VALUES ('trip', 0), ('payment', 0), ('expense', 0)").run();
   if (!db.prepare('SELECT COUNT(*) c FROM materials').get().c) {
     const ins = db.prepare('INSERT INTO materials (name, sort) VALUES (?, ?)');
     ins.run('دفان', 1);

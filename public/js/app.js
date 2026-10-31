@@ -1,4 +1,4 @@
-/* مارا — تسجيل خروج القلابات ومبيعات مواد الجبل
+/* مارا — تسجيل تحميل القلابات ومبيعات مواد الجبل
  * الواجهة تتصل بالخادم، وجميع البيانات محفوظة في قاعدة بيانات دائمة على الخادم.
  */
 (function () {
@@ -212,7 +212,7 @@
     return `فقط ${text} لا غير`;
   }
 
-  // ---------- سند الخروج ----------
+  // ---------- سند التحميل ----------
   const logoSrc = () => S.boot.settings.logo || 'img/logo.png';
   function voucherHtml(t) {
     const st = S.boot.settings;
@@ -226,7 +226,7 @@
         <div class="v-sep"></div>
         <img class="v-logo" src="${esc(logoSrc())}" alt="">
       </div>
-      <div class="v-title"><b>سند خروج</b><span>${esc(st.voucherTitle)}</span></div>
+      <div class="v-title"><b>سند تحميل</b><span>${esc(st.voucherTitle)}</span></div>
       <div class="v-no"><span>رقم السند: ${t.no}</span><span>${d} / ${m} / ${y}م — ${timeOf(t.created_at)}</span></div>
       ${row('رقم اللوحة', `<bdi dir="ltr"><b>${esc(t.plate)}</b></bdi>${t.truck_type ? ' — ' + esc(t.truck_type) : ''}`)}
       ${row('اسم السائق', esc(t.driver))}
@@ -313,12 +313,14 @@
 
   // ---------- الدخول ----------
   function renderLogin(needsSetup, error, ephemeral) {
+    S.loginState = [needsSetup, '', ephemeral];
     document.body.classList.remove('has-nav');
     $('#topbar').hidden = true;
     $('#drawer').hidden = true;
     $('#app').innerHTML = `<div class="login"><form class="box" id="loginForm">
       <div class="logo"><span class="brand-mark">M</span><h1 style="margin:0">مارا</h1></div>
-      <p class="sub">${needsSetup ? 'أول تشغيل: أنشئ حساب المدير' : 'تسجيل خروج القلابات'}</p>
+      ${I18N.switcher()}
+      <p class="sub">${needsSetup ? 'أول تشغيل: أنشئ حساب المدير' : 'تسجيل تحميل القلابات'}</p>
       ${ephemeral ? '<div class="error-box">⚠️ تحذير للمسؤول: لم يُربط قرص التخزين الدائم (Volume) بالخادم، وستضيع البيانات عند إعادة التشغيل. أضف Volume على المسار /data قبل الاستخدام.</div>' : ''}
       ${error ? `<div class="error-box">${esc(error)}</div>` : ''}
       ${needsSetup ? field('الاسم', '<input name="name" required autocomplete="name">') : ''}
@@ -364,11 +366,12 @@
   const isManager = () => S.user && S.user.role === 'manager';
   const NAV = [
     { id: 'dashboard', label: 'الرئيسية', ico: '🏠', manager: true },
-    { id: 'exit', label: 'تسجيل خروج', ico: '🚚' },
-    { id: 'today', label: 'خروج اليوم', ico: '📋', gateOnly: true },
+    { id: 'exit', label: 'تسجيل تحميل', ico: '🚚' },
+    { id: 'today', label: 'تحميل اليوم', ico: '📋', gateOnly: true },
     { id: 'trips', label: 'العمليات', ico: '📋', manager: true },
     { id: 'customers', label: 'العملاء والحسابات', ico: '👥', manager: true },
     { id: 'payments', label: 'سداد العملاء', ico: '💵', manager: true },
+    { id: 'expenses', label: 'المصروفات', ico: '⛽', manager: true },
     { id: 'trucks', label: 'القلابات والسائقين', ico: '🚛', manager: true },
     { id: 'reports', label: 'التقارير', ico: '📊', manager: true },
     { id: 'audit', label: 'سجل التغييرات', ico: '🕘', manager: true },
@@ -384,7 +387,8 @@
     $('#who').innerHTML = `${esc(S.user.name)}<br><small>${isManager() ? 'مدير' : 'موظف بوابة'}</small>`;
     $('#drawer').innerHTML = `<div class="drawer-head"><strong>${esc(S.user.name)}</strong><small>${isManager() ? 'مدير' : 'موظف بوابة'}</small></div>
       ${navItems().map((n) => `<a href="#${n.id}" data-nav="${n.id}"><span class="ico">${n.ico}</span>${n.label}</a>`).join('')}
-      <button class="nav-link" data-act="logout"><span class="ico">⏻</span>تسجيل الخروج من الحساب</button>`;
+      <button class="nav-link" data-act="logout"><span class="ico">⏻</span>الخروج من الحساب</button>
+      ${I18N.switcher()}`;
     $('#drawer').hidden = window.innerWidth < 1000;
   }
 
@@ -422,7 +426,7 @@
   }
   window.addEventListener('hashchange', render);
 
-  // ========== شاشة تسجيل الخروج ==========
+  // ========== شاشة تسجيل التحميل ==========
   const X = { requestId: newRequestId(), materialId: null, method: 'cash', price: '', paidTouched: false, driverAuto: true, submitting: false };
 
   function viewExit() {
@@ -433,7 +437,7 @@
     const recent = b.trucks.filter((t) => t.active && t.last_ts).sort((a, c) => c.last_ts - a.last_ts).slice(0, 10);
 
     $('#app').innerHTML = `<div class="exit-wrap"><form id="exitForm" autocomplete="off">
-      <h1>تسجيل خروج قلاب</h1>
+      <h1>تسجيل تحميل قلاب</h1>
       <div class="card">
         ${field('رقم لوحة القلاب', `<div class="row">
             <input class="grow big plate" name="plate" id="x-plate" list="plateList" placeholder="1234 ABD" required>
@@ -454,7 +458,7 @@
         <div class="remaining-box" id="x-remaining"><span>المتبقي</span><span class="v">0</span></div>
       </div>
       <div class="card">${field('ملاحظات (اختياري)', '<input name="notes" id="x-notes">')}</div>
-      <div class="sticky-submit"><button type="submit" class="btn red block xl" id="x-submit">✔ تأكيد الخروج</button></div>
+      <div class="sticky-submit"><button type="submit" class="btn red block xl" id="x-submit">✔ تأكيد التحميل</button></div>
     </form></div>`;
 
     const form = $('#exitForm');
@@ -561,22 +565,22 @@
       S.boot.lastPrices[trip.material_id] = trip.price;
       loadBoot().catch(() => {});
       openModal({
-        title: 'تم تسجيل الخروج',
-        body: `<div class="success-big"><div class="check">✓</div><div>سند خروج رقم</div><div class="num">${trip.no}</div>
-          <div>${plateHtml(trip.plate)} — ${esc(trip.material_name)} — ${money(trip.price)}</div>
+        title: 'تم تسجيل التحميل',
+        body: `<div class="success-big"><div class="check">✓</div><div>سند تحميل رقم</div><div class="num">${trip.no}</div>
+          <div>${plateHtml(trip.plate)} — <span>${esc(trip.material_name)}</span> — <span>${money(trip.price)}</span></div>
           ${trip.remaining > 0 ? `<div class="due" style="margin-top:6px">متبقي على ${esc(trip.customer_name)}: ${money(trip.remaining)}</div>` : ''}</div>`,
-        actions: `<button type="button" class="btn red xl" data-act="print-trip-obj">🖨️ طباعة السند</button><button type="button" class="btn ghost xl" data-act="new-exit">خروج جديد</button>`,
+        actions: `<button type="button" class="btn red xl" data-act="print-trip-obj">🖨️ طباعة السند</button><button type="button" class="btn ghost xl" data-act="new-exit">تحميل جديد</button>`,
       });
       S.lastTrip = trip;
     } catch (err) {
       if (err.status === 409 && err.data && err.data.error === 'duplicate') {
         X.submitting = false;
         btn.disabled = false;
-        btn.textContent = '✔ تأكيد الخروج';
+        btn.textContent = '✔ تأكيد التحميل';
         openModal({
           title: '⚠️ تنبيه: لوحة مكررة',
-          body: `<div class="error-box">${esc(err.data.message)}</div><p>هل أنت متأكد أن هذا خروج جديد لنفس القلاب؟</p>`,
-          actions: '<button type="button" class="btn red" data-act="confirm-dup">نعم، سجّل الخروج</button><button type="button" class="btn ghost" data-close>إلغاء</button>',
+          body: `<div class="error-box">${esc(err.data.message)}</div><p>هل أنت متأكد أن هذا تحميل جديد لنفس القلاب؟</p>`,
+          actions: '<button type="button" class="btn red" data-act="confirm-dup">نعم، سجّل التحميل</button><button type="button" class="btn ghost" data-close>إلغاء</button>',
         });
         return;
       }
@@ -584,7 +588,7 @@
     }
     X.submitting = false;
     const b2 = $('#x-submit');
-    if (b2) { b2.disabled = false; b2.textContent = '✔ تأكيد الخروج'; }
+    if (b2) { b2.disabled = false; b2.textContent = '✔ تأكيد التحميل'; }
   }
 
   function pickTruckModal() {
@@ -635,12 +639,12 @@
     });
   }
 
-  // ========== خروج اليوم (موظف البوابة) ==========
+  // ========== تحميل اليوم (موظف البوابة) ==========
   async function viewToday() {
     const trips = await api('GET', '/api/trips?status=all');
     S.tripsCache = trips;
     const active = trips.filter((t) => t.status === 'active');
-    $('#app').innerHTML = `<div class="page-head"><h1>خروج اليوم</h1><a class="btn red" href="#exit">+ تسجيل خروج</a></div>
+    $('#app').innerHTML = `<div class="page-head"><h1>تحميل اليوم</h1><a class="btn red" href="#exit">+ تسجيل تحميل</a></div>
       <div class="stats"><div class="stat red"><div class="l">عدد الردود اليوم</div><div class="v">${active.length}</div></div></div>
       <input id="today-q" placeholder="بحث باللوحة أو رقم السند..." style="margin-bottom:12px">
       <div class="trip-cards" id="today-list"></div>`;
@@ -655,8 +659,8 @@
 
   const tripCard = (t) => `<div class="trip-card ${t.status}">
     <div class="top"><span class="no">#${t.no} — ${plateHtml(t.plate)}</span><span>${timeOf(t.created_at)}</span></div>
-    <div>${esc(t.material_name)} — <b>${money(t.price)}</b> ${methodBadge(t.method)} ${t.status === 'cancelled' ? '<span class="badge cancelled">ملغي</span>' : ''}</div>
-    <div class="meta">${esc(t.driver || '—')} · ${esc(t.customer_name || 'نقدي')}${t.remaining > 0 ? ` · <span class="due">متبقي ${money(t.remaining)}</span>` : ''}</div>
+    <div><span>${esc(t.material_name)}</span> — <b>${money(t.price)}</b> ${methodBadge(t.method)} ${t.status === 'cancelled' ? '<span class="badge cancelled">ملغي</span>' : ''}</div>
+    <div class="meta"><span>${esc(t.driver || '—')}</span> · <span>${esc(t.customer_name || 'نقدي')}</span>${t.remaining > 0 ? ` · <span class="due">متبقي ${money(t.remaining)}</span>` : ''}</div>
     <div class="actions"><button class="btn sm" data-act="print-trip" data-id="${t.id}">🖨️ طباعة السند</button></div>
   </div>`;
 
@@ -665,7 +669,7 @@
     const d = await api('GET', '/api/dashboard');
     const s = d.summary;
     $('#app').innerHTML = `<div class="page-head"><h1>ملخص اليوم <small style="font-weight:400;color:var(--muted)">${esc(d.today)}</small></h1>
-        <a class="btn red" href="#exit">+ تسجيل خروج</a></div>
+        <a class="btn red" href="#exit">+ تسجيل تحميل</a></div>
       <div class="stats">
         <div class="stat red"><div class="l">عدد الردود</div><div class="v">${s.trips}</div></div>
         <div class="stat"><div class="l">المبيعات</div><div class="v">${money(s.sales)}</div></div>
@@ -673,12 +677,15 @@
         <div class="stat blue"><div class="l">التحويلات</div><div class="v">${money(s.totalTransfer)}</div></div>
         <div class="stat red"><div class="l">آجل اليوم</div><div class="v">${money(s.remaining)}</div></div>
         <div class="stat red"><div class="l">إجمالي أرصدة العملاء</div><div class="v">${money(d.outstanding)}</div></div>
+        <div class="stat"><div class="l">مصروفات اليوم</div><div class="v">${money(s.expenses)}</div></div>
+        <div class="stat ${s.net >= 0 ? 'ok' : 'red'}"><div class="l">صافي اليوم</div><div class="v">${money(s.net)}</div></div>
       </div>
       ${s.paymentsCash || s.paymentsTransfer ? `<div class="hint" style="margin:-6px 0 12px">التحصيل يشمل سدادات العملاء اليوم: نقد ${money(s.paymentsCash)} · تحويل ${money(s.paymentsTransfer)}</div>` : ''}
-      ${d.cancelledToday ? `<div class="hint warn" style="margin-bottom:12px">عمليات ملغاة اليوم: ${d.cancelledToday}</div>` : ''}
+      ${d.cancelledToday ? `<div class="hint warn" style="margin-bottom:12px"><span>عمليات ملغاة اليوم</span>: ${d.cancelledToday}</div>` : ''}
       <div class="grid2">
         <div>${groupTable('حسب المادة', d.byMaterial, 'المادة')}</div>
         <div>${groupTable('أكثر القلابات اليوم', d.byPlate, 'اللوحة', true)}</div>
+        ${d.expensesByCategory.length ? `<div>${expenseCatTable('مصروفات اليوم', d.expensesByCategory)}</div>` : ''}
       </div>
       <h3>آخر العمليات</h3>
       ${tripsTable(d.latest, { compact: true })}`;
@@ -844,7 +851,7 @@
     return `<div class="stats">
         <div class="stat"><div class="l">عدد الردود</div><div class="v">${t.trips}</div></div>
         <div class="stat"><div class="l">المبيعات</div><div class="v">${money(t.sales)}</div></div>
-        <div class="stat ok"><div class="l">المدفوع عند الخروج</div><div class="v">${money(t.paidAtExit)}</div></div>
+        <div class="stat ok"><div class="l">المدفوع عند التحميل</div><div class="v">${money(t.paidAtExit)}</div></div>
         <div class="stat ok"><div class="l">السدادات</div><div class="v">${money(t.payments)}</div></div>
         <div class="stat red"><div class="l">المتبقي</div><div class="v">${money(st.closing)}</div></div>
       </div>
@@ -917,13 +924,81 @@
     });
   }
 
+  // ========== المصروفات ==========
+  const expF = { from: '', to: '', category: '' };
+  const expenseCategories = () => String(S.boot.settings.expenseCategories || '').split('\n').map((x) => x.trim()).filter(Boolean);
+
+  const expenseCatTable = (title, rows) => `<h3>${title}</h3><div class="table-wrap"><table>
+    <thead><tr><th>البند</th><th class="n">المبلغ</th></tr></thead>
+    <tbody>${rows.map((r) => `<tr><td>${esc(r.label)}</td><td class="n">${fmt(r.amount)}</td></tr>`).join('')}</tbody>
+    <tfoot><tr><td>الإجمالي</td><td class="n">${fmt(rows.reduce((a, r) => a + r.amount, 0))}</td></tr></tfoot></table></div>`;
+
+  async function viewExpenses() {
+    if (!expF.from) { expF.from = monthStart(); expF.to = today(); }
+    const list = await api('GET', '/api/expenses?' + qs({ ...expF, status: 'all' }));
+    const active = list.filter((e) => e.status === 'active');
+    const total = (f) => active.reduce((a, e) => a + (f(e) ? e.amount : 0), 0);
+    const byCat = new Map();
+    for (const e of active) byCat.set(e.category, (byCat.get(e.category) || 0) + e.amount);
+    const cats = [...new Set([...expenseCategories(), ...list.map((e) => e.category)])];
+    $('#app').innerHTML = `<div class="page-head"><h1>المصروفات</h1><button class="btn red" data-act="new-expense">+ مصروف جديد</button></div>
+      <div class="card"><form class="toolbar" id="expFilter">
+        <div class="f"><label>من</label><input type="date" name="from" value="${expF.from}"></div>
+        <div class="f"><label>إلى</label><input type="date" name="to" value="${expF.to}"></div>
+        <div class="f"><label>البند</label><select name="category"><option value="">الكل</option>${cats.map((c) => opt(c, c, expF.category)).join('')}</select></div>
+        <button class="btn black" type="submit">عرض</button>
+        <button class="btn" type="button" data-act="print-expenses">🖨️ طباعة</button>
+      </form></div>
+      <div class="stats">
+        <div class="stat red"><div class="l">إجمالي المصروفات</div><div class="v">${money(total(() => true))}</div></div>
+        <div class="stat ok"><div class="l">نقد</div><div class="v">${money(total((e) => e.method === 'cash'))}</div></div>
+        <div class="stat blue"><div class="l">تحويل</div><div class="v">${money(total((e) => e.method === 'transfer'))}</div></div>
+      </div>
+      <div id="expBody">${expensesTable(list)}
+      ${byCat.size ? expenseCatTable('حسب البند', [...byCat].map(([label, amount]) => ({ label, amount })).sort((a, b) => b.amount - a.amount)) : ''}</div>`;
+    $('#expFilter').addEventListener('submit', (e) => {
+      e.preventDefault();
+      Object.assign(expF, Object.fromEntries(new FormData(e.target).entries()));
+      viewExpenses();
+    });
+  }
+
+  const expensesTable = (list) => `<div class="table-wrap"><table><thead><tr><th>رقم</th><th>التاريخ</th><th>البند</th><th class="n">المبلغ</th><th>الطريقة</th><th>الأصل</th><th>الموظف</th><th>ملاحظات</th><th></th></tr></thead>
+    <tbody>${list.map((e) => `<tr class="${e.status}"><td>${e.no}</td><td>${esc(e.date)}</td><td>${esc(e.category)}</td><td class="n">${fmt(e.amount)}</td>
+      <td class="keep">${methodBadge(e.method)}</td><td>${esc(e.asset_name)}</td><td>${esc(e.user_name)}</td><td>${esc(e.notes)}</td>
+      <td class="keep">${e.status === 'active' ? `<button class="btn sm danger" data-act="cancel-expense" data-id="${e.id}">إلغاء</button>` : `<span class="badge cancelled">ملغي: ${esc(e.cancel_reason)}</span>`}</td></tr>`).join('')
+      || '<tr><td colspan="9" class="empty">لا توجد مصروفات</td></tr>'}</tbody></table></div>`;
+
+  async function expenseModal() {
+    const requestId = newRequestId();
+    const assets = await api('GET', '/api/assets');
+    openModal({
+      title: 'مصروف جديد',
+      body: `${field('البند', `<select name="category" required><option value="">— اختر —</option>${expenseCategories().map((c) => opt(c, c)).join('')}</select>`, 'تُعدّل البنود من الإعدادات')}
+        ${field('المبلغ', '<input class="big money" name="amount" inputmode="decimal" required>')}
+        <div class="grid2">
+          ${field('طريقة الدفع', `<select name="method">${opt('cash', 'نقد')}${opt('transfer', 'تحويل')}</select>`)}
+          ${field('التاريخ', `<input type="date" name="date" value="${today()}">`)}
+        </div>
+        ${field('الأصل / المعدة (اختياري)', `<select name="assetId"><option value="">— مصروف عام —</option>${assets.map((a) => opt(a.id, a.name)).join('')}</select>`)}
+        ${field('ملاحظات', '<input name="notes">')}`,
+      onSubmit: async (d) => {
+        if (!d.category) { showModalError('اختر بند المصروف'); return false; }
+        if (!(toNum(d.amount) > 0)) { showModalError('أدخل مبلغ المصروف'); return false; }
+        await api('POST', '/api/expenses', { ...d, requestId });
+        toast('تم حفظ المصروف');
+        render();
+      },
+    });
+  }
+
   // ========== القلابات ==========
   async function viewTrucks() {
     const list = await api('GET', '/api/trucks');
     S.trucksCache = list;
     $('#app').innerHTML = `<div class="page-head"><h1>القلابات والسائقين</h1><button class="btn red" data-act="new-truck">+ قلاب جديد</button></div>
       <input id="truck-q" placeholder="بحث باللوحة أو السائق..." style="margin-bottom:12px">
-      <div class="table-wrap"><table><thead><tr><th>اللوحة</th><th>السائق</th><th>جوال السائق</th><th>النوع</th><th class="n">الردود</th><th>آخر خروج</th><th></th></tr></thead>
+      <div class="table-wrap"><table><thead><tr><th>اللوحة</th><th>السائق</th><th>جوال السائق</th><th>النوع</th><th class="n">الردود</th><th>آخر تحميل</th><th></th></tr></thead>
       <tbody id="truck-body"></tbody></table></div>`;
     const draw = () => {
       const q = $('#truck-q').value.trim();
@@ -932,7 +1007,7 @@
         <td>${esc(t.type)}</td><td class="n">${t.trips}</td><td>${esc((t.last_trip || '').slice(0, 16))}</td>
         <td><button class="btn sm" data-act="truck-report" data-plate="${esc(t.plate)}">كشف</button>
           <button class="btn sm ghost" data-act="edit-truck" data-id="${t.id}">تعديل</button></td></tr>`).join('')
-        || '<tr><td colspan="7" class="empty">لا توجد قلابات. تُسجل تلقائياً عند أول خروج</td></tr>';
+        || '<tr><td colspan="7" class="empty">لا توجد قلابات. تُسجل تلقائياً عند أول تحميل</td></tr>';
     };
     $('#truck-q').addEventListener('input', draw);
     draw();
@@ -1007,14 +1082,24 @@
         <div class="stat blue"><div class="l">التحويلات</div><div class="v">${money(s.totalTransfer)}</div></div>
         <div class="stat red"><div class="l">آجل من ردود الفترة</div><div class="v">${money(s.remaining)}</div></div>
         <div class="stat red"><div class="l">الأرصدة المتبقية</div><div class="v">${money(s.balances)}</div></div>
+        ${r.expenses ? `<div class="stat"><div class="l">المصروفات</div><div class="v">${money(s.expenses)}</div></div>
+        <div class="stat ${s.net >= 0 ? 'ok' : 'red'}"><div class="l">صافي الربح</div><div class="v">${money(s.net)}</div></div>
+        <div class="stat ${s.cashNet >= 0 ? 'ok' : 'red'}"><div class="l">صافي النقد</div><div class="v">${money(s.cashNet)}</div></div>` : ''}
       </div>
-      <div class="hint" style="margin:-6px 0 12px">التحصيل = المدفوع عند الخروج (نقد ${money(s.cash)} · تحويل ${money(s.transfer)})${r.payments ? ` + سدادات العملاء (نقد ${money(s.paymentsCash)} · تحويل ${money(s.paymentsTransfer)})` : ' — السدادات لا تظهر عند التصفية باللوحة أو المادة'}</div>
+      <div class="table-wrap"><table><tbody>
+        <tr><td>نقد عند التحميل</td><td class="n">${fmt(s.cash)}</td><td>تحويل عند التحميل</td><td class="n">${fmt(s.transfer)}</td></tr>
+        ${r.payments ? `<tr><td>سدادات نقد</td><td class="n">${fmt(s.paymentsCash)}</td><td>سدادات تحويل</td><td class="n">${fmt(s.paymentsTransfer)}</td></tr>` : ''}
+        ${r.expenses ? `<tr><td>مصروفات نقد</td><td class="n">${fmt(s.expensesCash)}</td><td>مصروفات تحويل</td><td class="n">${fmt(s.expensesTransfer)}</td></tr>` : ''}
+      </tbody></table></div>
+      ${r.payments ? '' : '<div class="hint">السدادات لا تظهر عند التصفية باللوحة أو المادة</div>'}
+      ${r.expenses ? '' : '<div class="hint">المصروفات لا تظهر عند التصفية باللوحة أو العميل أو المادة</div>'}
       <div class="grid2">
         <div>${groupTable('حسب نوع المادة', r.byMaterial, 'المادة')}</div>
         <div>${groupTable('حسب العميل', r.byCustomer, 'العميل')}</div>
       </div>
       ${groupTable('حسب اللوحة', r.byPlate, 'اللوحة', true)}
-      ${groupTable('حسب اليوم', r.byDay, 'اليوم')}
+      ${groupTable('حسب اليوم', r.byDay, 'التاريخ')}
+      ${r.expenses && r.expenses.byCategory.length ? expenseCatTable('المصروفات حسب البند', r.expenses.byCategory) : ''}
       <h3>أرصدة العملاء المتبقية (حتى ${esc(r.to)})</h3>
       <div class="table-wrap"><table><thead><tr><th>العميل</th><th>الجوال</th><th class="n">الرصيد</th></tr></thead>
         <tbody>${r.balances.map((c) => `<tr><td>${esc(c.name)}</td><td dir="ltr">${esc(c.phone)}</td><td class="n ${c.balance > 0 ? 'due' : ''}">${fmt(c.balance)}</td></tr>`).join('')
@@ -1053,7 +1138,7 @@
   }
   const auditList = (rows) => `<div class="table-wrap"><table><thead><tr><th>الوقت</th><th>المستخدم</th><th>العملية</th><th>التفاصيل</th></tr></thead>
     <tbody>${rows.map((a) => `<tr><td>${esc(a.at.slice(0, 16))}</td><td>${esc(a.user_name)}</td><td><b>${esc(a.action)}</b></td>
-      <td style="white-space:normal">${esc(a.summary)}${a.reason ? `<div class="due">السبب: ${esc(a.reason)}</div>` : ''}${diffHtml(a)}</td></tr>`).join('')
+      <td style="white-space:normal">${esc(a.summary)}${a.reason ? `<div class="due"><span>السبب</span>: ${esc(a.reason)}</div>` : ''}${diffHtml(a)}</td></tr>`).join('')
       || '<tr><td colspan="4" class="empty">لا يوجد سجل</td></tr>'}</tbody></table></div>`;
 
   async function viewAudit() {
@@ -1089,13 +1174,13 @@
   }
 
   const assetsTable = (list, actions) => `<div class="table-wrap"><table><thead><tr><th>الأصل</th><th>النوع</th><th>اللوحة / التسلسلي</th><th>تاريخ الشراء</th>
-    <th class="n">قيمة الشراء</th><th class="n">الإهلاك السنوي</th><th class="n">مجمع الإهلاك</th><th class="n">القيمة الدفترية</th><th>الحالة</th>${actions ? '<th></th>' : ''}</tr></thead>
+    <th class="n">قيمة الشراء</th><th class="n">الإهلاك السنوي</th><th class="n">مجمع الإهلاك</th><th class="n">القيمة الدفترية</th><th class="n">المصروفات</th><th>الحالة</th>${actions ? '<th></th>' : ''}</tr></thead>
     <tbody>${list.map((a) => {
       const d = depreciation(a);
       return `<tr><td><b>${esc(a.name)}</b></td><td>${esc(a.type)}</td><td>${plateHtml(a.identifier)}</td><td>${esc(a.purchase_date || '')}</td>
-        <td class="n">${fmt(a.cost)}</td><td class="n">${fmt(d.yearly)}</td><td class="n">${fmt(d.acc)}</td><td class="n"><b>${fmt(d.book)}</b></td>
+        <td class="n">${fmt(a.cost)}</td><td class="n">${fmt(d.yearly)}</td><td class="n">${fmt(d.acc)}</td><td class="n"><b>${fmt(d.book)}</b></td><td class="n">${fmt(a.expenses || 0)}</td>
         <td>${ASSET_STATUS[a.status] || ''}</td>${actions ? `<td><button class="btn sm ghost" data-act="edit-asset" data-id="${a.id}">تعديل</button></td>` : ''}</tr>`;
-    }).join('') || `<tr><td colspan="10" class="empty">لم تُسجل أصول بعد</td></tr>`}</tbody></table></div>`;
+    }).join('') || `<tr><td colspan="11" class="empty">لم تُسجل أصول بعد</td></tr>`}</tbody></table></div>`;
 
   function assetModal(a) {
     const x = a || { status: 'active', life_years: 5, purchase_date: today() };
@@ -1134,6 +1219,7 @@
             ${field('العملة', `<input name="currency" value="${esc(st.currency)}">`)}
             ${field('العنوان الفرعي للسند', `<input name="voucherTitle" value="${esc(st.voucherTitle)}">`)}
             ${field('حجم السند', `<select name="voucherSize">${opt('a5', 'A5 (نموذج الشركة)', st.voucherSize)}${opt('80mm', 'طابعة إيصالات 80 ملم', st.voucherSize)}</select>`)}
+            ${field('بنود المصروفات (بند في كل سطر)', `<textarea name="expenseCategories" rows="5">${esc(st.expenseCategories)}</textarea>`)}
             ${field('تنبيه تكرار اللوحة خلال (دقيقة)', `<input class="money" name="duplicateMinutes" inputmode="numeric" value="${esc(st.duplicateMinutes)}">`, '0 = إيقاف التنبيه')}
           </div>
           <div class="field"><label class="lbl">الشعار</label><div class="row" style="align-items:center">
@@ -1155,7 +1241,7 @@
         <tbody>${users.map((u) => `<tr><td>${esc(u.name)}</td><td dir="ltr">${esc(u.username)}</td>
           <td><span class="badge ${u.role}">${u.role === 'manager' ? 'مدير' : 'موظف بوابة'}</span></td><td>${u.active ? 'نشط' : '<span class="badge cancelled">موقوف</span>'}</td>
           <td><button class="btn sm ghost" data-act="edit-user" data-id="${u.id}">تعديل</button></td></tr>`).join('')}</tbody></table></div>
-        <div class="hint">موظف البوابة: تسجيل الخروج وطباعة سندات اليوم فقط. المدير: كل الصلاحيات (التقارير، التعديل، الإلغاء، الإعدادات).</div></div>
+        <div class="hint">موظف البوابة: تسجيل التحميل وطباعة سندات اليوم فقط. المدير: كل الصلاحيات (التقارير، التعديل، الإلغاء، الإعدادات).</div></div>
 
       <div class="card"><h2>النسخ الاحتياطي</h2>
         <p class="hint">البيانات محفوظة في قاعدة بيانات دائمة على الخادم. للاحتياط، نزّل نسخة بشكل دوري واحفظها في مكان آخر.</p>
@@ -1192,7 +1278,7 @@
     openModal({
       title: m ? 'تعديل مادة' : 'مادة جديدة',
       body: `${field('اسم المادة', `<input name="name" value="${esc(m ? m.name : '')}" required>`)}
-        ${m ? field('الحالة', `<select name="active">${opt(1, 'نشطة', m.active)}${opt(0, 'موقوفة (لا تظهر في شاشة الخروج)', m.active)}</select>`) : ''}`,
+        ${m ? field('الحالة', `<select name="active">${opt(1, 'نشطة', m.active)}${opt(0, 'موقوفة (لا تظهر في شاشة التحميل)', m.active)}</select>`) : ''}`,
       onSubmit: async (d) => {
         if (m) await api('PUT', `/api/materials/${m.id}`, { name: d.name, active: d.active !== '0' });
         else await api('POST', '/api/materials', d);
@@ -1249,6 +1335,15 @@
       customerModal(c, () => render());
     },
     'pay-customer': (el) => paymentModal(el.dataset.id || ''),
+    'new-expense': () => expenseModal(),
+    'cancel-expense': async (el) => {
+      const reason = await askReason('إلغاء مصروف', 'سبب الإلغاء');
+      if (!reason) return;
+      await api('POST', `/api/expenses/${el.dataset.id}/cancel`, { reason });
+      toast('تم إلغاء المصروف');
+      render();
+    },
+    'print-expenses': () => printDoc('المصروفات', `${expF.from} — ${expF.to}`, $('#expBody').innerHTML),
     'cancel-payment': async (el) => {
       const reason = await askReason('إلغاء سداد', 'سبب الإلغاء');
       if (!reason) return;
@@ -1296,7 +1391,12 @@
 
   const VIEWS = {
     exit: viewExit, today: viewToday, dashboard: viewDashboard, trips: viewTrips, customers: viewCustomers, customer: viewCustomer,
-    payments: viewPayments, trucks: viewTrucks, reports: viewReports, audit: viewAudit, assets: viewAssets, settings: viewSettings,
+    payments: viewPayments, expenses: viewExpenses, trucks: viewTrucks, reports: viewReports, audit: viewAudit, assets: viewAssets, settings: viewSettings,
+  };
+
+  // عند تغيير اللغة نعيد رسم الشاشة الحالية
+  I18N.onChange = () => {
+    if (S.user) { renderShell(); render(); } else if (S.loginState) renderLogin(...S.loginState);
   };
 
   async function start() {

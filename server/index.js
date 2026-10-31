@@ -1,4 +1,4 @@
-// خادم نظام تسجيل خروج القلابات
+// خادم نظام تسجيل تحميل القلابات
 process.env.TZ = process.env.TZ || 'Asia/Riyadh';
 
 const path = require('path');
@@ -231,7 +231,7 @@ function createApp(db, opts = {}) {
     return db.prepare('SELECT * FROM trucks WHERE id = ?').get(before.id);
   }));
 
-  // ---------- عمليات الخروج (الردود) ----------
+  // ---------- عمليات التحميل (الردود) ----------
   const getTrip = (id) => db.prepare('SELECT * FROM trips WHERE id = ?').get(id);
 
   // التحقق من بيانات العملية وحساب المتبقي
@@ -264,9 +264,9 @@ function createApp(db, opts = {}) {
       const id = db.prepare(`INSERT INTO trucks (plate, plate_norm, driver, created_at) VALUES (?, ?, ?, ?)`)
         .run(plate, plateNorm, driver, D.localDateTime()).lastInsertRowid;
       truck = db.prepare('SELECT * FROM trucks WHERE id = ?').get(id);
-      audit(user, 'إضافة', 'truck', id, `إضافة قلاب جديد عند الخروج: ${plate}`, null, { plate, driver });
+      audit(user, 'إضافة', 'truck', id, `إضافة قلاب جديد عند التحميل: ${plate}`, null, { plate, driver });
     } else if (driver && driver !== truck.driver) {
-      // اسم السائق يُحفظ مع القلاب ويمكن تغييره من شاشة الخروج
+      // اسم السائق يُحفظ مع القلاب ويمكن تغييره من شاشة التحميل
       db.prepare('UPDATE trucks SET driver = ? WHERE id = ?').run(driver, truck.id);
       audit(user, 'تعديل', 'truck', truck.id, `تغيير سائق القلاب ${truck.plate}: ${truck.driver || '-'} ← ${driver}`, { driver: truck.driver }, { driver });
       truck.driver = driver;
@@ -290,7 +290,7 @@ function createApp(db, opts = {}) {
       if (last && now - last.ts < mins * 60e3) {
         res.status(409).json({
           error: 'duplicate',
-          message: `اللوحة ${x.plate} سُجل لها خروج قبل ${Math.max(1, Math.round((now - last.ts) / 60e3))} دقيقة (سند رقم ${last.no})`,
+          message: `اللوحة ${x.plate} سُجل لها تحميل قبل ${Math.max(1, Math.round((now - last.ts) / 60e3))} دقيقة (سند رقم ${last.no})`,
           last,
         });
         return;
@@ -310,7 +310,7 @@ function createApp(db, opts = {}) {
         price: x.price, paid: x.paid, remaining: x.remaining, method: x.method, notes: x.notes, userId: req.user.id, userName: req.user.name,
       }).lastInsertRowid;
       const t = getTrip(id);
-      audit(req.user, 'تسجيل خروج', 'trip', id, `سند ${no} — ${t.plate} — ${t.material_name} — ${t.price}`, null, t);
+      audit(req.user, 'تسجيل تحميل', 'trip', id, `سند ${no} — ${t.plate} — ${t.material_name} — ${t.price}`, null, t);
       return t;
     })();
     res.status(201);
@@ -487,6 +487,25 @@ function createApp(db, opts = {}) {
       };
     }
 
+    // المصروفات لا ترتبط بلوحة أو عميل أو مادة، لذا تظهر فقط بدون هذه التصفية
+    let expenses = null;
+    if (!q.plate && !q.materialId && !q.customerId) {
+      const ew = ["status = 'active'"];
+      const ep = {};
+      if (f.from) { ew.push('date >= @from'); ep.from = f.from; }
+      if (f.to) { ew.push('date <= @to'); ep.to = f.to; }
+      const list = db.prepare(`SELECT * FROM expenses WHERE ${ew.join(' AND ')} ORDER BY ts`).all(ep);
+      const byCat = new Map();
+      for (const e of list) byCat.set(e.category, round2((byCat.get(e.category) || 0) + e.amount));
+      expenses = {
+        list,
+        total: sum(list, (e) => e.amount),
+        cash: sum(list, (e) => (e.method === 'cash' ? e.amount : 0)),
+        transfer: sum(list, (e) => (e.method === 'transfer' ? e.amount : 0)),
+        byCategory: [...byCat].map(([label, amount]) => ({ label, amount })).sort((a, b) => b.amount - a.amount),
+      };
+    }
+
     const balances = db.prepare(`SELECT c.id, c.name, c.phone, ROUND(${balanceSql}, 2) AS balance FROM customers c
       ${q.customerId ? 'WHERE c.id = @cid' : ''} ORDER BY balance DESC`)
       .all({ to: f.to || '9999-12-31', ...(q.customerId ? { cid: Number(q.customerId) } : {}) })
@@ -498,9 +517,14 @@ function createApp(db, opts = {}) {
     summary.totalCash = round2(summary.cash + summary.paymentsCash);
     summary.totalTransfer = round2(summary.transfer + summary.paymentsTransfer);
     summary.balances = sum(balances, (c) => c.balance);
+    summary.expenses = expenses ? expenses.total : 0;
+    summary.expensesCash = expenses ? expenses.cash : 0;
+    summary.expensesTransfer = expenses ? expenses.transfer : 0;
+    summary.net = round2(summary.sales - summary.expenses);
+    summary.cashNet = round2(summary.totalCash - summary.expensesCash);
 
     return {
-      from: f.from, to: f.to, summary, trips, payments, balances,
+      from: f.from, to: f.to, summary, trips, payments, expenses, balances,
       byDay: group((t) => t.date, (t) => t.date).sort((a, b) => a.key.localeCompare(b.key)),
       byPlate: group((t) => t.plate_norm, (t) => t.plate),
       byCustomer: group((t) => t.customer_id || 0, (t) => t.customer_name || 'نقدي (بدون عميل)'),
@@ -519,7 +543,7 @@ function createApp(db, opts = {}) {
     const r = report({ from: today, to: today }, req.user);
     const outstanding = db.prepare(`SELECT ROUND(SUM(b), 2) v FROM (SELECT ${balanceSql} AS b FROM customers c) WHERE b > 0`).get({ to: '9999-12-31' }).v || 0;
     return {
-      today, summary: r.summary, byMaterial: r.byMaterial, byPlate: r.byPlate.slice(0, 10),
+      today, summary: r.summary, byMaterial: r.byMaterial, byPlate: r.byPlate.slice(0, 10), expensesByCategory: r.expenses.byCategory,
       latest: db.prepare('SELECT * FROM trips WHERE date = ? ORDER BY ts DESC LIMIT 15').all(today),
       cancelledToday: db.prepare("SELECT COUNT(*) c FROM trips WHERE date = ? AND status = 'cancelled'").get(today).c,
       outstanding,
@@ -545,10 +569,13 @@ function createApp(db, opts = {}) {
           columns: [{ header: 'البند', width: 34 }, { header: 'القيمة', width: 20 }],
           rows: [
             ['الشركة', st.companyName], ['الفترة', `${r.from || 'البداية'} إلى ${r.to || 'الآن'}`],
-            ['عدد الردود', s.trips], ['المبيعات', s.sales], ['نقد عند الخروج', s.cash], ['تحويل عند الخروج', s.transfer],
+            ['عدد الردود', s.trips], ['المبيعات', s.sales], ['نقد عند التحميل', s.cash], ['تحويل عند التحميل', s.transfer],
             ['متبقي آجل من ردود الفترة', s.remaining], ['سدادات نقد', s.paymentsCash], ['سدادات تحويل', s.paymentsTransfer],
             { bold: true, values: ['إجمالي التحصيل النقدي', s.totalCash] }, { bold: true, values: ['إجمالي التحويلات', s.totalTransfer] },
             { bold: true, values: ['أرصدة العملاء المتبقية', s.balances] },
+            ...(r.expenses ? [['المصروفات', s.expenses], ['مصروفات نقد', s.expensesCash], ['مصروفات تحويل', s.expensesTransfer],
+              { bold: true, values: ['صافي الربح (المبيعات − المصروفات)', s.net] },
+              { bold: true, values: ['صافي النقد (التحصيل النقدي − مصروفات نقد)', s.cashNet] }] : []),
           ],
         },
         {
@@ -576,6 +603,17 @@ function createApp(db, opts = {}) {
           columns: [{ header: 'رقم', width: 8 }, { header: 'التاريخ', width: 20 }, { header: 'العميل', width: 24 }, { header: 'المبلغ', width: 14 },
             { header: 'الطريقة', width: 10 }, { header: 'الموظف', width: 16 }, { header: 'ملاحظات', width: 30 }],
           rows: r.payments.list.map((p) => [p.no, p.created_at, p.customer_name, p.amount, METHODS[p.method], p.user_name, p.notes]),
+        });
+      }
+      if (r.expenses) {
+        sheets.push({
+          name: 'المصروفات',
+          columns: [{ header: 'رقم', width: 8 }, { header: 'التاريخ', width: 12 }, { header: 'البند', width: 20 }, { header: 'المبلغ', width: 14 },
+            { header: 'الطريقة', width: 10 }, { header: 'الأصل', width: 20 }, { header: 'الموظف', width: 16 }, { header: 'ملاحظات', width: 30 }],
+          rows: [
+            ...r.expenses.list.map((e) => [e.no, e.date, e.category, e.amount, METHODS[e.method], e.asset_name, e.user_name, e.notes]),
+            { bold: true, values: ['الإجمالي', '', '', r.expenses.total] },
+          ],
         });
       }
       sheets.push({
@@ -619,11 +657,11 @@ function createApp(db, opts = {}) {
   app.put('/api/settings', auth, manager, route((req) => {
     const b = req.body || {};
     const before = settings();
-    const allowed = ['companyName', 'city', 'phone', 'currency', 'voucherTitle', 'voucherSize', 'duplicateMinutes', 'logo'];
+    const allowed = ['companyName', 'city', 'phone', 'currency', 'voucherTitle', 'voucherSize', 'duplicateMinutes', 'logo', 'expenseCategories'];
     const upd = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
     for (const k of allowed) {
       if (b[k] === undefined) continue;
-      let v = k === 'logo' ? String(b[k]).slice(0, 2_000_000) : str(b[k], 120);
+      let v = k === 'logo' ? String(b[k]).slice(0, 2_000_000) : str(b[k], k === 'expenseCategories' ? 2000 : 120);
       if (k === 'duplicateMinutes') v = String(Math.max(0, Math.min(1440, Number(v) || 0)));
       if (k === 'voucherSize' && !['a5', '80mm'].includes(v)) v = 'a5';
       if (k === 'logo' && v && !/^data:image\/(png|jpeg|webp|gif);base64,/.test(v)) bad('صيغة الشعار غير مدعومة');
@@ -679,6 +717,65 @@ function createApp(db, opts = {}) {
     return db.prepare(`SELECT * FROM audit ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY id DESC LIMIT 500`).all(p);
   }));
 
+  // ---------- المصروفات ----------
+  app.post('/api/expenses', auth, manager, route((req, res) => {
+    const b = req.body || {};
+    const requestId = str(b.requestId, 64) || null;
+    if (requestId) {
+      const existing = db.prepare('SELECT * FROM expenses WHERE request_id = ?').get(requestId);
+      if (existing) return { expense: existing, repeated: true };
+    }
+    const category = str(b.category, 60);
+    if (!category) bad('اختر بند المصروف');
+    const amt = amount(b.amount);
+    if (!(amt > 0)) bad('أدخل مبلغ المصروف');
+    const method = b.method === 'transfer' ? 'transfer' : b.method === 'cash' ? 'cash' : null;
+    if (!method) bad('اختر طريقة الدفع');
+    let asset = null;
+    if (b.assetId) {
+      asset = db.prepare('SELECT * FROM assets WHERE id = ?').get(b.assetId);
+      if (!asset) bad('الأصل غير موجود');
+    }
+    const now = new Date();
+    const at = D.localDateTime(now);
+    const date = isDate(b.date) ? b.date : at.slice(0, 10);
+    const expense = db.transaction(() => {
+      const no = D.nextNumber(db, 'expense');
+      const id = db.prepare(`INSERT INTO expenses (no, request_id, ts, created_at, date, category, amount, method, asset_id, asset_name, notes, user_id, user_name)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(no, requestId, now.getTime(), at, date, category, amt, method,
+        asset ? asset.id : null, asset ? asset.name : '', str(b.notes, 300), req.user.id, req.user.name).lastInsertRowid;
+      const e = db.prepare('SELECT * FROM expenses WHERE id = ?').get(id);
+      audit(req.user, 'مصروف', 'expense', id, `مصروف ${no} — ${category} — ${amt}`, null, e);
+      return e;
+    })();
+    res.status(201);
+    return { expense };
+  }));
+
+  app.get('/api/expenses', auth, manager, route((req) => {
+    const q = req.query;
+    const where = [];
+    const p = {};
+    if (isDate(q.from)) { where.push('date >= @from'); p.from = q.from; }
+    if (isDate(q.to)) { where.push('date <= @to'); p.to = q.to; }
+    if (q.category) { where.push('category = @category'); p.category = str(q.category, 60); }
+    if (q.assetId) { where.push('asset_id = @assetId'); p.assetId = Number(q.assetId); }
+    if (q.status !== 'all') where.push("status = 'active'");
+    return db.prepare(`SELECT * FROM expenses ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY date DESC, ts DESC LIMIT 3000`).all(p);
+  }));
+
+  app.post('/api/expenses/:id/cancel', auth, manager, route((req) => {
+    const before = db.prepare('SELECT * FROM expenses WHERE id = ?').get(req.params.id);
+    if (!before) throw new HttpError(404, 'المصروف غير موجود');
+    if (before.status !== 'active') bad('المصروف ملغى مسبقاً');
+    const reason = str((req.body || {}).reason, 300);
+    if (!reason) bad('اكتب سبب الإلغاء');
+    db.prepare(`UPDATE expenses SET status = 'cancelled', cancel_reason = ?, cancelled_by = ?, cancelled_at = ? WHERE id = ?`)
+      .run(reason, req.user.name, D.localDateTime(), before.id);
+    audit(req.user, 'إلغاء', 'expense', before.id, `إلغاء مصروف ${before.no} — ${before.category} — ${before.amount}`, before, null, reason);
+    return { ok: true };
+  }));
+
   // ---------- الأصول ----------
   const ASSET_STATUS = ['active', 'maintenance', 'idle', 'sold'];
   function assetInput(b) {
@@ -691,7 +788,8 @@ function createApp(db, opts = {}) {
     if (!rec.name) bad('أدخل اسم الأصل');
     return rec;
   }
-  app.get('/api/assets', auth, manager, route(() => db.prepare('SELECT * FROM assets ORDER BY id').all()));
+  app.get('/api/assets', auth, manager, route(() => db.prepare(`SELECT a.*, COALESCE((SELECT SUM(amount) FROM expenses
+    WHERE asset_id = a.id AND status = 'active'), 0) AS expenses FROM assets a ORDER BY a.id`).all()));
   app.post('/api/assets', auth, manager, route((req) => {
     const rec = assetInput(req.body || {});
     const id = db.prepare(`INSERT INTO assets (name, type, identifier, purchase_date, cost, life_years, salvage, status, location, notes)
