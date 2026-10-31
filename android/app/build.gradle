@@ -1,0 +1,52 @@
+plugins {
+    id 'com.android.application'
+}
+
+def twaHost = project.findProperty('twaHost') ?: '130-110-124-14.sslip.io'
+def keystoreFile = System.getenv('ANDROID_KEYSTORE_FILE')
+
+android {
+    namespace 'sa.mara.jabal'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'sa.mara.jabal'
+        minSdk 21
+        targetSdk 34
+        versionCode((System.getenv('GITHUB_RUN_NUMBER') ?: '1') as int)
+        versionName "1.0.${System.getenv('GITHUB_RUN_NUMBER') ?: '0'}"
+        resValue 'string', 'host', twaHost
+        resValue 'string', 'launch_url', "https://${twaHost}/"
+        resValue 'string', 'asset_statements',
+            "[{\\\"relation\\\": [\\\"delegate_permission/common.handle_all_urls\\\"], \\\"target\\\": {\\\"namespace\\\": \\\"web\\\", \\\"site\\\": \\\"https://${twaHost}\\\"}}]"
+        manifestPlaceholders = [hostName: twaHost]
+    }
+
+    signingConfigs {
+        release {
+            if (keystoreFile) {
+                storeFile file(keystoreFile)
+                storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
+                keyAlias 'jabal'
+                keyPassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            // بدون مفتاح التوقيع يُبنى التطبيق بمفتاح التجربة (debug) ليمكن تثبيته للتجربة
+            signingConfig keystoreFile ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.5.0'
+}

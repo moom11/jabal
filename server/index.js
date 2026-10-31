@@ -33,6 +33,15 @@ function createApp(db, opts = {}) {
   // خلف خادم وسيط (Railway وغيره) لمعرفة عنوان المستخدم الحقيقي
   app.set('trust proxy', 1);
   app.use(express.json({ limit: '3mb' }));
+  // ربط تطبيق الأندرويد بالموقع (يفتح التطبيق بملء الشاشة بدون شريط العنوان)
+  const ANDROID_CERTS = [
+    'B7:65:99:A7:8E:DB:17:CB:6E:2A:F3:6E:50:F4:B2:3A:4D:FB:BC:5B:45:DE:C1:36:6C:6E:41:F2:99:D4:45:9B',
+    ...String(process.env.ANDROID_CERT_SHA256 || '').split(',').map((x) => x.trim()).filter(Boolean),
+  ];
+  app.get('/.well-known/assetlinks.json', (req, res) => res.json([{
+    relation: ['delegate_permission/common.handle_all_urls'],
+    target: { namespace: 'android_app', package_name: 'sa.mara.jabal', sha256_cert_fingerprints: ANDROID_CERTS },
+  }]));
   app.use(express.static(path.join(__dirname, '..', 'public')));
 
   const settings = () => D.getSettings(db);
